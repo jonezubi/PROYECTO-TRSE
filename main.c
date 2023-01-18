@@ -22,7 +22,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -38,7 +39,7 @@
 #define RGB_Blue	3
 
 #define temp_raw_cold 850 // 18ºC
-#define temp_raw_hot 950  // 26ºC
+#define temp_raw_hot  950 // 26ºC
 
 #define limite_LDR 2000
 /* USER CODE END PD */
@@ -127,6 +128,11 @@ osEventFlagsId_t Fire_FlagHandle;
 const osEventFlagsAttr_t Fire_Flag_attributes = {
   .name = "Fire_Flag"
 };
+/* Definitions for Sys_Flag */
+osEventFlagsId_t Sys_FlagHandle;
+const osEventFlagsAttr_t Sys_Flag_attributes = {
+  .name = "Sys_Flag"
+};
 /* USER CODE BEGIN PV */
 struct ADC_Values{
 	uint32_t temp;
@@ -162,7 +168,10 @@ void set_rgb (uint8_t red, uint8_t green, uint8_t blue)
 }
 
 void HAL_GPIO_EXTI_Callback ( uint16_t GPIO_Pin ){
-	if(GPIO_Pin & MASK(9)){
+	if(GPIO_Pin == Pulsador_Azul_Pin){
+		osEventFlagsSet(Sys_FlagHandle, 0x00000001U);
+	}
+	else if(GPIO_Pin & MASK(9)){
 		osEventFlagsSet(Fire_FlagHandle, 0x00000001U);
 	}
 	else if((GPIO_Pin & MASK(8)) && !(HAL_GPIO_ReadPin(GPIOB, Fire_Detect_Pin))){
@@ -268,6 +277,9 @@ int main(void)
 
   /* creation of Fire_Flag */
   Fire_FlagHandle = osEventFlagsNew(&Fire_Flag_attributes);
+
+  /* creation of Sys_Flag */
+  Sys_FlagHandle = osEventFlagsNew(&Sys_Flag_attributes);
 
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
@@ -544,6 +556,9 @@ static void MX_GPIO_Init(void)
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
 }
 
 /* USER CODE BEGIN 4 */
@@ -560,10 +575,27 @@ static void MX_GPIO_Init(void)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
+	char msg_power_off[8] = "SAPAGADO";
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+	  osEventFlagsWait(Sys_FlagHandle, 0x00000001U, osFlagsWaitAny, osWaitForever);
+	  osSemaphoreAcquire(Fire_SemaphoreHandle, osWaitForever);
+
+	  osMutexAcquire(com_lockHandle, osWaitForever);
+	  HAL_UART_Transmit(&huart2, msg_power_off, sizeof(msg_power_off), 1000);
+	  osMutexRelease(com_lockHandle);
+
+	  // Apagar todas las salidas
+	  set_rgb(0,0,0);
+	  HAL_GPIO_WritePin(GPIOC, LED_Ambiente_Pin, 0);
+	  HAL_GPIO_WritePin(GPIOC, LED_Calor_Pin, 0);
+	  HAL_GPIO_WritePin(GPIOC, LED_Frio_Pin, 0);
+	  HAL_GPIO_WritePin(GPIOC, LED_LDR_Pin, 0);
+
+	  osSemaphoreRelease(Fire_SemaphoreHandle);
+	  osEventFlagsClear(Sys_FlagHandle, 0x00000001U);
+	  exit(0);
   }
   /* USER CODE END 5 */
 }
@@ -604,6 +636,7 @@ void Start_RGB_Task(void *argument)
 			RGB = RGB_Off;
 			break;
 	}
+	osEventFlagsClear(Sound_FlagHandle, 0x00000001U);
 	osDelay(10);
   }
   /* USER CODE END Start_RGB_Task */
@@ -626,7 +659,6 @@ void Start_Fire_Task(void *argument)
   for(;;)
   {
 	osEventFlagsWait(Fire_FlagHandle, 0x00000001U, osFlagsWaitAny, osWaitForever);
-	osEventFlagsClear(Fire_FlagHandle, 0x00000001U);
 	osSemaphoreAcquire(Fire_SemaphoreHandle, osWaitForever);
 
 	// Apagar todas las salidas no necesarias
@@ -637,15 +669,25 @@ void Start_Fire_Task(void *argument)
 	HAL_GPIO_WritePin(GPIOC, LED_LDR_Pin, 0);
 
 	htim3.Instance->CCR4 = 250;
+
+	osMutexAcquire(com_lockHandle, osWaitForever);
 	HAL_UART_Transmit(&huart2, msg_fire, sizeof(msg_fire), 1000);
+	osMutexRelease(com_lockHandle);
+
 	while(HAL_GPIO_ReadPin(GPIOB, Fire_Detect_Pin)){
 		HAL_GPIO_TogglePin(GPIOB, LED_Fire_Pin);
 		osDelay(500);
 	}
+
 	htim3.Instance->CCR4 = 0;
 	osDelay(1000);
 	HAL_GPIO_WritePin(GPIOB, LED_Fire_Pin, 0);
+
+	osMutexAcquire(com_lockHandle, osWaitForever);
 	HAL_UART_Transmit(&huart2, msg_apagado, sizeof(msg_apagado), 1000);
+	osMutexRelease(com_lockHandle);
+
+	osEventFlagsClear(Fire_FlagHandle, 0x00000001U);
 	osSemaphoreRelease(Fire_SemaphoreHandle);
 	osDelay(10);
   }
@@ -668,6 +710,7 @@ void Start_ADC_Read(void *argument)
   /* Infinite loop */
   for(;;)
   {
+	//osEventFlagsWait(Fire_FlagHandle, 0x00000000U, osFlagWaitAny, osWaitForever);
 	if (osSemaphoreGetCount(Fire_SemaphoreHandle)){
 		HAL_ADC_Start (&hadc1) ; /* INICIO */
 		status = HAL_ADC_PollForConversion (&hadc1, 1);
@@ -704,9 +747,10 @@ void Start_COM(void *argument)
 	  unsigned char message_str[8] = {'0','0','0','0','0','0','0','0'};
 
 	  osMessageQueueGet(ADC_Read_ColaHandle, &message, NULL, osWaitForever);
-	  sprintf(message_str, "%4ld%4ld", message.temp, message.ldr);
-
+	  sprintf(message_str, "%04ld%04ld", message.temp, message.ldr);
+	  osMutexAcquire(com_lockHandle, osWaitForever);
 	  HAL_UART_Transmit(&huart2, message_str, sizeof(message_str), 1000);
+	  osMutexRelease(com_lockHandle);
 
   }
   /* USER CODE END Start_COM */
