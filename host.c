@@ -43,13 +43,11 @@ char *msg_estado_LDR[] = {"LUZ: OFF", "LUZ:  ON"};
 char *msg_estado_temp[] = {"Ventilador:  ON | Calefactor: OFF", "Ventilador: OFF | Calefactor:  ON", "Ventilador: OFF | Calefactor: OFF"}; 
 float temp;
 int LDR; 
+time_t t;
+struct tm tm ;
 
- 
 void* productor(char* f) {
   FILE *log;
-  time_t t = time(NULL);
-  struct tm tm = *localtime(&t);
-
   int serial_port, n_bytes;
   char temp_raw_str[5], ldr_raw_str[5];
   
@@ -103,6 +101,8 @@ void* productor(char* f) {
 
   while(strcmp(buffer_aux, "SAPAGADO") != 0)
   {
+    //t = time(NULL);
+    //tm = *localtime(&t);
     n_bytes = read(serial_port, &read_buffer, sizeof(read_buffer));
     strncpy(buffer_aux, read_buffer, 8);
     buffer_aux[9] = '\0';
@@ -110,6 +110,8 @@ void* productor(char* f) {
 
     if(strcmp(buffer_aux, "INCENDIO") == 0){
         incendio=1;
+        //t = time(NULL);
+        //tm = *localtime(&t);
         log = fopen ("log.txt", "a");
         fprintf(log, "%d-%02d-%02d %02d:%02d:%02d - Ha ocurrido un incendio\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
         fclose(log);
@@ -121,7 +123,8 @@ void* productor(char* f) {
             buffer_aux[9] = '\0';
             //printf("Incendio => %s\n", buffer_aux);
         }
-        
+        //t = time(NULL);
+        //tm = *localtime(&t);
 	    log = fopen ("log.txt", "a");
         fprintf(log,"%d-%02d-%02d %02d:%02d:%02d - Incendio apagado\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec); 
         fclose(log);
@@ -195,10 +198,10 @@ void* consumidor()
     while(strcmp(buffer_aux, "SAPAGADO") != 0) 
     { 
 
-        time_t t = time(NULL);
-        struct tm *tm = localtime(&t);
+        t = time(NULL);
+        tm = *localtime(&t);
         char s[64];
-        size_t ret = strftime(s, sizeof(s), "%c", tm);
+        size_t ret = strftime(s, sizeof(s), "%c", &tm);
         assert(ret);
         /*print menu screen*/ 
         system("clear");
@@ -264,7 +267,10 @@ void* consumidor()
 int main(int argc, char *argv[]) 
 { 
     FILE *log;
+    t = time(NULL);
+    tm = *localtime(&t); 
     log = fopen ("log.txt", "w+");
+    fprintf(log,"%d-%02d-%02d %02d:%02d:%02d - Sistema encendido\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
     fclose(log);
     //memset(&read_buffer, '0', sizeof(read_buffer)); 
     //memset(&buffer_aux, '\0', sizeof(buffer_aux)); 
@@ -282,7 +288,12 @@ int main(int argc, char *argv[])
     } 
 
     pthread_join(tp, NULL); 
-    pthread_join(tc, NULL); 
+    pthread_join(tc, NULL);
+    t = time(NULL);
+    tm = *localtime(&t); 
+    log = fopen ("log.txt", "a");
+    fprintf(log,"%d-%02d-%02d %02d:%02d:%02d - Sistema apagado\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    fclose(log);
 
     return 0; 
 } 
