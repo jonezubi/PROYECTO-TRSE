@@ -32,8 +32,8 @@
 
 pthread_t tp, tc;
 
-char read_buffer[8]; 
-char buffer_aux[9]; 
+char read_buffer[8] = ""; 
+char buffer_aux[9] = ""; 
 
 char temp_raw_str[5], ldr_raw_str[5]; 
 int estado_temp, estado_temp_ant = -1; 
@@ -42,7 +42,7 @@ int incendio=0;
 char *msg_estado_LDR[] = {"LUZ: OFF", "LUZ:  ON"}; 
 char *msg_estado_temp[] = {"Ventilador:  ON | Calefactor: OFF", "Ventilador: OFF | Calefactor:  ON", "Ventilador: OFF | Calefactor: OFF"}; 
 float temp;
-float LDR; 
+int LDR; 
 
  
 void* productor(char* f) {
@@ -101,7 +101,7 @@ void* productor(char* f) {
       exit(4);
   }
 
-  while(1)
+  while(strcmp(buffer_aux, "SAPAGADO") != 0)
   {
     n_bytes = read(serial_port, &read_buffer, sizeof(read_buffer));
     strncpy(buffer_aux, read_buffer, 8);
@@ -138,9 +138,8 @@ void* productor(char* f) {
         strncpy(ldr_raw_str, &buffer_aux[4], 4);
         ldr_raw_str[5] = '\0';
         
-        int LDR_ADC=atoi(ldr_raw_str);
-        float ADC_Value= 0.00080586; //3.3/(2^12-1)
-        LDR=(250.0/(ADC_Value*LDR_ADC))-50.0;
+
+        LDR=atoi(ldr_raw_str);
 
         // msg_estado_temp Temperatura
         if(atoi(temp_raw_str) < TEMP_RAW_COLD) // Frio
@@ -157,7 +156,7 @@ void* productor(char* f) {
         }
 
         // Claro
-        if(LDR_ADC  < limite_LDR){
+        if(LDR  < limite_LDR){
             estado_ldr_led = OFF;
         }
         // Oscuro
@@ -193,7 +192,7 @@ void* productor(char* f) {
 void* consumidor() 
 { 
     int widthLDR=5;
-    while(1) 
+    while(strcmp(buffer_aux, "SAPAGADO") != 0) 
     { 
 
         time_t t = time(NULL);
@@ -247,8 +246,8 @@ void* consumidor()
             printf("\t\t\t|\tTemperatura: %6.2f ºC      |\n",temp);
             printf("\t\t\t| %s |\n",msg_estado_temp[estado_temp]);    
             printf("\t\t\t|***********************************|\n");   
-            //printf("\t\t\t|\tLuminosidad: %*d lux      |\n", widthLDR,LDR);
-            printf("\t\t\t|\tLuminosidad: %6.2f lux     |\n", LDR);
+            printf("\t\t\t|\tLuminosidad: %*d lux      |\n", widthLDR,LDR);
+            //printf("\t\t\t|\tLuminosidad: %6.2f lux     |\n", LDR);
             printf("\t\t\t|               %s            |\n",msg_estado_LDR[estado_ldr_led]);  
             printf("\t\t\t|___________________________________|\n");
         }
@@ -267,8 +266,9 @@ int main(int argc, char *argv[])
     FILE *log;
     log = fopen ("log.txt", "w+");
     fclose(log);
-    memset(&read_buffer, '0', sizeof(read_buffer)); 
-
+    //memset(&read_buffer, '0', sizeof(read_buffer)); 
+    //memset(&buffer_aux, '\0', sizeof(buffer_aux)); 
+    
     if (pthread_create(&tp, NULL, (void *)productor, (void *)file_serial_port) != 0) 
     { 
         fprintf(stderr, "Error al crear thread para %s\n", file_serial_port); 
